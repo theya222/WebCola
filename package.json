@@ -36,7 +36,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "test": "grunt full",
-    "prepublish": "grunt ts:commonjs browserify:dist uglify"
+    "prepare": "grunt ts:commonjs browserify:dist uglify"
   },
   "repository": {
     "type": "git",
