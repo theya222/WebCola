@@ -1,6 +1,7 @@
 import {Constraint, Variable, Solver} from './vpsc'
 import {RBTree} from './rbtree'
 import {Point} from './geom'
+import {type} from "os";
 
     export interface Leaf {
         bounds: Rectangle;
@@ -9,12 +10,19 @@ import {Point} from './geom'
 
     export interface ProjectionGroup {
         bounds: Rectangle;
-        padding: number;
+        padding: number | PaddingObject;
         stiffness: number;
         leaves: Leaf[];
         groups: ProjectionGroup[];
         minVar: Variable;
         maxVar: Variable;
+    }
+
+    export interface PaddingObject {
+        x: number;
+        X: number;
+        y: number;
+        Y: number;
     }
 
     export function computeGroupBounds(g: ProjectionGroup): Rectangle {
@@ -144,8 +152,12 @@ import {Point} from './geom'
             return null;
         }
 
-        inflate(pad: number): Rectangle {
-            return new Rectangle(this.x - pad, this.X + pad, this.y - pad, this.Y + pad);
+        inflate(pad: number | PaddingObject): Rectangle {
+            if (typeof pad === "object") {
+                return new Rectangle(this.x -pad.x, this.X + pad.X, this.y - pad.y, this.Y + pad.Y);
+            } else {
+                return new Rectangle(this.x - pad, this.X + pad, this.y - pad, this.Y + pad);
+            }
         }
     }
 
@@ -233,8 +245,9 @@ import {Point} from './geom'
         getOpen: (r: Rectangle) => number;
         getClose: (r: Rectangle) => number;
         getSize: (r: Rectangle) => number;
-        makeRect: (open: number, close: number, center: number, size: number) => Rectangle;
+        makeRect: (open: number, close: number, center: number, size: number | PaddingObject) => Rectangle;
         findNeighbours: (v: Node, scanline: RBTree<Node>) => void;
+        axis: string;
     }
 
     var xRect: RectAccessors = {
@@ -242,8 +255,15 @@ import {Point} from './geom'
         getOpen: r=> r.y,
         getClose: r=> r.Y,
         getSize: r=> r.width(),
-        makeRect: (open, close, center, size) => new Rectangle(center - size / 2, center + size / 2, open, close) ,
-        findNeighbours: findXNeighbours
+        makeRect: (open, close, center, size) => {
+            if (typeof size === "number"){
+                return new Rectangle(center - size / 2, center + size / 2, open, close);
+            } else {
+                return new Rectangle(center - size.x / 2, center + size.X / 2, open, close);
+            }
+        } ,
+        findNeighbours: findXNeighbours,
+        axis: 'x',
     };
 
     var yRect: RectAccessors = {
@@ -251,8 +271,14 @@ import {Point} from './geom'
         getOpen: r=> r.x,
         getClose: r=> r.X,
         getSize: r=> r.height(),
-        makeRect: (open, close, center, size) => new Rectangle(open, close, center - size / 2, center + size / 2),
-        findNeighbours: findYNeighbours
+        makeRect: (open, close, center, size) => {
+            if (typeof size === "number"){
+                return new Rectangle(open, close, center - size / 2, center + size / 2);
+            } else {
+                return new Rectangle(open, close, center - size.y / 2, center + size.Y / 2);
+            }
+        } ,findNeighbours: findYNeighbours,
+        axis: 'y',
     };
 
     function generateGroupConstraints(root: ProjectionGroup, f: RectAccessors, minSep: number, isContained: boolean = false): Constraint[]
@@ -271,8 +297,17 @@ import {Point} from './geom'
             // if this group is contained by another, then we add two dummy vars and rectangles for the borders
             var b: Rectangle = root.bounds,
                 c = f.getCentre(b), s = f.getSize(b) / 2,
-                open = f.getOpen(b), close = f.getClose(b),
-                min = c - s + padding / 2, max = c + s - padding / 2;
+                open = f.getOpen(b), close = f.getClose(b);
+            // min = c - s + padding / 2, max = c + s - padding / 2;
+            if(typeof padding === 'object'){
+                if(f.axis === 'x'){
+                    var min = c - s + padding.x / 2, max = c + s - padding.X / 2;
+                } else {
+                    var min = c - s + padding.y / 2, max = c + s - padding.Y / 2;
+                }
+            } else {
+                var min = c - s + padding / 2, max = c + s - padding / 2;
+            }
             root.minVar.desiredPosition = min;
             add(f.makeRect(open, close, min, padding), root.minVar);
             root.maxVar.desiredPosition = max;
@@ -288,9 +323,16 @@ import {Point} from './geom'
             vs.forEach(v => { v.cOut = [], v.cIn = [] });
             cs.forEach(c => { c.left.cOut.push(c), c.right.cIn.push(c) });
             root.groups.forEach(g => {
-                var gapAdjustment = (g.padding - f.getSize(g.bounds)) / 2;
-                g.minVar.cIn.forEach(c => c.gap += gapAdjustment);
-                g.minVar.cOut.forEach(c => { c.left = g.maxVar; c.gap += gapAdjustment; });
+                if (typeof g.padding === 'object'){
+                    const padding = f.axis === 'x'? g.padding.x + g.padding.X : g.padding.y + g.padding.Y;
+                    var gapAdjustment = (padding - f.getSize(g.bounds)) / 2;
+                    g.minVar.cIn.forEach(c => c.gap += gapAdjustment);
+                    g.minVar.cOut.forEach(c => { c.left = g.maxVar; c.gap += gapAdjustment; });
+                } else {
+                    var gapAdjustment = (g.padding - f.getSize(g.bounds)) / 2;
+                    g.minVar.cIn.forEach(c => c.gap += gapAdjustment);
+                    g.minVar.cOut.forEach(c => { c.left = g.maxVar; c.gap += gapAdjustment; });
+                }
             });
         }
         return childConstraints.concat(cs);
@@ -527,9 +569,14 @@ import {Point} from './geom'
                 g => {
                     var xmin = x[(<IndexedVariable>g.minVar).index] = g.minVar.position();
                     var xmax = x[(<IndexedVariable>g.maxVar).index] = g.maxVar.position();
-                    var p2 = g.padding / 2;
-                    g.bounds.x = xmin - p2;
-                    g.bounds.X = xmax + p2;
+                    if (typeof g.padding === "number") {
+                        var p2 = g.padding / 2;
+                        g.bounds.x = xmin - p2;
+                        g.bounds.X = xmax + p2;
+                    } else {
+                        g.bounds.x = xmin - g.padding.x/2;
+                        g.bounds.X = xmax + g.padding.X/2;
+                    }
                 });
         }
 
@@ -540,9 +587,14 @@ import {Point} from './geom'
                 g => {
                     var ymin = y[(<IndexedVariable>g.minVar).index] = g.minVar.position();
                     var ymax = y[(<IndexedVariable>g.maxVar).index] = g.maxVar.position();
-                    var p2 = g.padding / 2;
-                    g.bounds.y = ymin - p2;;
-                    g.bounds.Y = ymax + p2;
+                    if (typeof g.padding === "number") {
+                        var p2 = g.padding / 2;
+                        g.bounds.y = ymin - p2;
+                        g.bounds.Y = ymax + p2;
+                    } else {
+                        g.bounds.y = ymin - g.padding.y/2;
+                        g.bounds.Y = ymax + g.padding.Y/2;
+                    }
                 });
         }
 

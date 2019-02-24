@@ -11,3 +11,4 @@ WebCola/test/npm-debug.log
 WebCola/test/bundle.js
 WebCola/test/apitests.js*
 .vscode
+/.idea/
