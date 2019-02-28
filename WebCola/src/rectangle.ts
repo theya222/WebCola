@@ -1,7 +1,6 @@
 import {Constraint, Variable, Solver} from './vpsc'
 import {RBTree} from './rbtree'
 import {Point} from './geom'
-import {type} from "os";
 
     export interface Leaf {
         bounds: Rectangle;
