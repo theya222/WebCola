@@ -184,54 +184,69 @@ DEBUG */
 
         // compute first and second derivative information storing results in this.g and this.H
         public computeDerivatives(x: number[][]) {
-            var n: number = this.n;
+            const n = this.n;
             if (n < 1) return;
-            var i: number;
+            let i: number;
 /* DEBUG
             for (var u: number = 0; u < n; ++u)
                 for (i = 0; i < this.k; ++i)
                     if (isNaN(x[i][u])) debugger;
 DEBUG */
-            var d: number[] = new Array(this.k);
-            var d2: number[] = new Array(this.k);
-            var Huu: number[] = new Array(this.k);
-            var maxH: number = 0;
-            for (var u: number = 0; u < n; ++u) {
+
+            let d = new Array<number>(this.k); // distance vector
+            let d2 = new Array<number>(this.k); // distance vector squared
+            let Huu = new Array<number>(this.k); // Hessian diagonal
+            let maxH = 0; // max Hessian matrix entry
+
+            // across all nodes u
+            for (let u = 0; u < n; ++u) {
+                // zero gradient and hessian diagonals
                 for (i = 0; i < this.k; ++i) Huu[i] = this.g[i][u] = 0;
-                for (var v = 0; v < n; ++v) {
+
+                // across all nodes v
+                for (let v = 0; v < n; ++v) {
                     if (u === v) continue;
 
-                    // The following loop randomly displaces nodes that are at identical positions
-                    var maxDisplaces = n; // avoid infinite loop in the case of numerical issues, such as huge values
+                    // The following loop computes distance vector and
+                    // randomly displaces nodes that are at identical positions
+                    let maxDisplaces = n; // avoid infinite loop in the case of numerical issues, such as huge values
+                    let distanceSquared = 0;
                     while (maxDisplaces--) {
-                        var sd2 = 0;
+                        distanceSquared = 0;
                         for (i = 0; i < this.k; ++i) {
-                            var dx = d[i] = x[i][u] - x[i][v];
-                            sd2 += d2[i] = dx * dx;
+                            const dx = d[i] = x[i][u] - x[i][v];
+                            distanceSquared += d2[i] = dx * dx;
                         }
-                        if (sd2 > 1e-9) break;
-                        var rd = this.offsetDir();
+                        if (distanceSquared > 1e-9) break;
+                        const rd = this.offsetDir();
                         for (i = 0; i < this.k; ++i) x[i][v] += rd[i];
                     }
-                    var l: number = Math.sqrt(sd2);
-                    var D: number = this.D[u][v];
-                    var weight = this.G != null ? this.G[u][v] : 1;
-                    if (weight > 1 && l > D || !isFinite(D)) {
+                    const distance = Math.sqrt(distanceSquared);
+                    const idealDistance = this.D[u][v];
+                    // weights are passed via G matrix.
+                    // weight > 1 means not immediately connected
+                    // small weights (<<1) are used for group dummy nodes
+                    let weight = this.G != null ? this.G[u][v] : 1;
+
+                    // ignore long range attractions for nodes not immediately connected (P-stress)
+                    if (weight > 1 && distance > idealDistance || !isFinite(idealDistance)) {
                         for (i = 0; i < this.k; ++i) this.H[i][u][v] = 0;
                         continue;
                     }
+                    // weight > 1 was just an indicator - this is an arcane interface,
+                    // but we are trying to be economical storing and passing node pair info
                     if (weight > 1) {
                         weight = 1;
                     }
-                    var D2: number = D * D;
-                    var gs: number = 2 * weight * (l - D) / (D2 * l);
-                    var l3 = l * l * l;
-                    var hs: number = 2 * -weight / (D2 * l3);
+                    const idealDistSquared = idealDistance * idealDistance,
+                        gs = 2 * weight * (distance - idealDistance) / (idealDistSquared * distance),
+                        distanceCubed = distanceSquared * distance,
+                        hs = 2 * -weight / (idealDistSquared * distanceCubed);
                     if (!isFinite(gs))
                         console.log(gs);
                     for (i = 0; i < this.k; ++i) {
                         this.g[i][u] += d[i] * gs;
-                        Huu[i] -= this.H[i][u][v] = hs * (l3 + D * (d2[i] - sd2) + l * sd2);
+                        Huu[i] -= this.H[i][u][v] = hs * (2 * distanceCubed + idealDistance * (d2[i] - distanceSquared));
                     }
                 }
                 for (i = 0; i < this.k; ++i) maxH = Math.max(maxH, this.H[i][u][u] = Huu[i]);
