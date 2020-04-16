@@ -109,7 +109,12 @@ var Rectangle = (function () {
         return null;
     };
     Rectangle.prototype.inflate = function (pad) {
-        return new Rectangle(this.x - pad, this.X + pad, this.y - pad, this.Y + pad);
+        if (typeof pad === "object") {
+            return new Rectangle(this.x - pad.x, this.X + pad.X, this.y - pad.y, this.Y + pad.Y);
+        }
+        else {
+            return new Rectangle(this.x - pad, this.X + pad, this.y - pad, this.Y + pad);
+        }
     };
     return Rectangle;
 }());
@@ -172,23 +177,49 @@ var xRect = {
     getOpen: function (r) { return r.y; },
     getClose: function (r) { return r.Y; },
     getSize: function (r) { return r.width(); },
-    makeRect: function (open, close, center, size) { return new Rectangle(center - size / 2, center + size / 2, open, close); },
-    findNeighbours: findXNeighbours
+    makeRect: function (open, close, center, size) {
+        if (typeof size === "number") {
+            return new Rectangle(center - size / 2, center + size / 2, open, close);
+        }
+        else {
+            return new Rectangle(center - size.x / 2, center + size.X / 2, open, close);
+        }
+    },
+    findNeighbours: findXNeighbours,
+    axis: 'x',
 };
 var yRect = {
     getCentre: function (r) { return r.cy(); },
     getOpen: function (r) { return r.x; },
     getClose: function (r) { return r.X; },
     getSize: function (r) { return r.height(); },
-    makeRect: function (open, close, center, size) { return new Rectangle(open, close, center - size / 2, center + size / 2); },
-    findNeighbours: findYNeighbours
+    makeRect: function (open, close, center, size) {
+        if (typeof size === "number") {
+            return new Rectangle(open, close, center - size / 2, center + size / 2);
+        }
+        else {
+            return new Rectangle(open, close, center - size.y / 2, center + size.Y / 2);
+        }
+    }, findNeighbours: findYNeighbours,
+    axis: 'y',
 };
 function generateGroupConstraints(root, f, minSep, isContained) {
     if (isContained === void 0) { isContained = false; }
     var padding = root.padding, gn = typeof root.groups !== 'undefined' ? root.groups.length : 0, ln = typeof root.leaves !== 'undefined' ? root.leaves.length : 0, childConstraints = !gn ? []
         : root.groups.reduce(function (ccs, g) { return ccs.concat(generateGroupConstraints(g, f, minSep, true)); }, []), n = (isContained ? 2 : 0) + ln + gn, vs = new Array(n), rs = new Array(n), i = 0, add = function (r, v) { rs[i] = r; vs[i++] = v; };
     if (isContained) {
-        var b = root.bounds, c = f.getCentre(b), s = f.getSize(b) / 2, open = f.getOpen(b), close = f.getClose(b), min = c - s + padding / 2, max = c + s - padding / 2;
+        var b = root.bounds, c = f.getCentre(b), s = f.getSize(b) / 2, open = f.getOpen(b), close = f.getClose(b);
+        if (typeof padding === 'object') {
+            if (f.axis === 'x') {
+                var min = c - s + padding.x / 2, max = c + s - padding.X / 2;
+            }
+            else {
+                var min = c - s + padding.y / 2, max = c + s - padding.Y / 2;
+            }
+        }
+        else {
+            var min = c - s + padding / 2, max = c + s - padding / 2;
+        }
         root.minVar.desiredPosition = min;
         add(f.makeRect(open, close, min, padding), root.minVar);
         root.maxVar.desiredPosition = max;
@@ -206,9 +237,17 @@ function generateGroupConstraints(root, f, minSep, isContained) {
         vs.forEach(function (v) { v.cOut = [], v.cIn = []; });
         cs.forEach(function (c) { c.left.cOut.push(c), c.right.cIn.push(c); });
         root.groups.forEach(function (g) {
-            var gapAdjustment = (g.padding - f.getSize(g.bounds)) / 2;
-            g.minVar.cIn.forEach(function (c) { return c.gap += gapAdjustment; });
-            g.minVar.cOut.forEach(function (c) { c.left = g.maxVar; c.gap += gapAdjustment; });
+            if (typeof g.padding === 'object') {
+                var padding_1 = f.axis === 'x' ? g.padding.x + g.padding.X : g.padding.y + g.padding.Y;
+                var gapAdjustment = (padding_1 - f.getSize(g.bounds)) / 2;
+                g.minVar.cIn.forEach(function (c) { return c.gap += gapAdjustment; });
+                g.minVar.cOut.forEach(function (c) { c.left = g.maxVar; c.gap += gapAdjustment; });
+            }
+            else {
+                var gapAdjustment = (g.padding - f.getSize(g.bounds)) / 2;
+                g.minVar.cIn.forEach(function (c) { return c.gap += gapAdjustment; });
+                g.minVar.cOut.forEach(function (c) { c.left = g.maxVar; c.gap += gapAdjustment; });
+            }
         });
     }
     return childConstraints.concat(cs);
@@ -419,9 +458,15 @@ var Projection = (function () {
         this.project(x0, y0, x0, x, function (v) { return v.px; }, this.xConstraints, generateXGroupConstraints, function (v) { return v.bounds.setXCentre(x[v.variable.index] = v.variable.position()); }, function (g) {
             var xmin = x[g.minVar.index] = g.minVar.position();
             var xmax = x[g.maxVar.index] = g.maxVar.position();
-            var p2 = g.padding / 2;
-            g.bounds.x = xmin - p2;
-            g.bounds.X = xmax + p2;
+            if (typeof g.padding === "number") {
+                var p2 = g.padding / 2;
+                g.bounds.x = xmin - p2;
+                g.bounds.X = xmax + p2;
+            }
+            else {
+                g.bounds.x = xmin - g.padding.x / 2;
+                g.bounds.X = xmax + g.padding.X / 2;
+            }
         });
     };
     Projection.prototype.yProject = function (x0, y0, y) {
@@ -430,10 +475,15 @@ var Projection = (function () {
         this.project(x0, y0, y0, y, function (v) { return v.py; }, this.yConstraints, generateYGroupConstraints, function (v) { return v.bounds.setYCentre(y[v.variable.index] = v.variable.position()); }, function (g) {
             var ymin = y[g.minVar.index] = g.minVar.position();
             var ymax = y[g.maxVar.index] = g.maxVar.position();
-            var p2 = g.padding / 2;
-            g.bounds.y = ymin - p2;
-            ;
-            g.bounds.Y = ymax + p2;
+            if (typeof g.padding === "number") {
+                var p2 = g.padding / 2;
+                g.bounds.y = ymin - p2;
+                g.bounds.Y = ymax + p2;
+            }
+            else {
+                g.bounds.y = ymin - g.padding.y / 2;
+                g.bounds.Y = ymax + g.padding.Y / 2;
+            }
         });
     };
     Projection.prototype.projectFunctions = function () {
